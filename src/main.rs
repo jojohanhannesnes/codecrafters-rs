@@ -4,7 +4,7 @@ use std::env;
 // use serde_bencode
 
 #[allow(dead_code)]
-fn decode_bencoded_value(encoded_value: &str) -> String {
+fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
     match encoded_value {
         // integer
         value if value.starts_with('i') && value.ends_with('e') => {
@@ -13,12 +13,12 @@ fn decode_bencoded_value(encoded_value: &str) -> String {
                 .unwrap_or_else(|| panic!("Error slicing the integer"))
                 .parse::<i32>()
                 .unwrap_or_else(|e| panic!("Error parsing integer {}", e));
-            x.to_string()
+            serde_json::Value::String(x.to_string())
         }
         // string
         val if val.contains(':') => {
             if let Some((_, right)) = val.split_once(':') {
-                right.to_string()
+                serde_json::Value::String(right.to_string())
             } else {
                 panic!("[string]Unhandled encoded value: {}", val)
             }
