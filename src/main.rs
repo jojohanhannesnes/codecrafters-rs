@@ -60,7 +60,7 @@ fn decode_bencoded_value(encoded_value: &str) -> BencodedValue {
             .into(),
         // vector
         mut x if x.starts_with('l') => {
-            let mut lists: Vec<&str> = Vec::new();
+            let mut lists = Vec::new();
             x = x.strip_prefix('l').unwrap();
             while x.len() != 1 {
                 // reached last e
@@ -79,7 +79,13 @@ fn decode_bencoded_value(encoded_value: &str) -> BencodedValue {
                         x = &x[delim + 1 + encode_length..];
                         lists.push(encode_value);
                     }
-                    _ => panic!("doesnt understand the list"),
+                    'l' => {
+                        unimplemented!()
+                    }
+                    x => {
+                        println!("{x}");
+                        panic!("doesnt understand the list");
+                    }
                 }
             }
             let x: Vec<BencodedValue> = lists.into_iter().map(decode_bencoded_value).collect();
