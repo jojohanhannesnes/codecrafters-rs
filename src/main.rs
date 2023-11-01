@@ -1,11 +1,13 @@
-use std::env;
+use std::{collections::HashMap, env};
+
 // Available if you need it!
 // use serde_bencode
-
+#[derive(Clone)]
 enum BencodedValue {
     String(String),
     Number(i64),
     List(Vec<BencodedValue>),
+    Dictionary(HashMap<String, BencodedValue>),
 }
 
 impl std::fmt::Debug for BencodedValue {
@@ -14,12 +16,35 @@ impl std::fmt::Debug for BencodedValue {
             Self::String(arg0) => write!(f, "{:?}", arg0),
             Self::Number(arg0) => write!(f, "{:?}", arg0),
             BencodedValue::List(arg0) => write!(f, "{:?}", arg0),
+            BencodedValue::Dictionary(arg0) => write!(f, "{:?}", arg0),
         }
     }
 }
-impl Into<BencodedValue> for i64 {
-    fn into(self) -> BencodedValue {
-        BencodedValue::Number(self)
+
+impl From<i64> for BencodedValue {
+    fn from(value: i64) -> Self {
+        BencodedValue::Number(value)
+    }
+}
+
+// just in case for every key that is decoded will be the key of dictionaries
+impl ToString for BencodedValue {
+    fn to_string(&self) -> String {
+        match self {
+            BencodedValue::String(s) => s.to_string(),
+            BencodedValue::Number(n) => n.to_string(),
+            BencodedValue::List(list) => {
+                let elements: Vec<String> = list.iter().map(|item| item.to_string()).collect();
+                format!("List({})", elements.join(", "))
+            }
+            BencodedValue::Dictionary(dict) => {
+                let elements: Vec<String> = dict
+                    .iter()
+                    .map(|(key, value)| format!("{}: {}", key, value.to_string()))
+                    .collect();
+                format!("Dictionary({})", elements.join(", "))
+            }
+        }
     }
 }
 
@@ -27,14 +52,12 @@ impl Into<BencodedValue> for i64 {
 fn decode_bencoded_value(encoded_value: &str) -> BencodedValue {
     match encoded_value {
         // integer
-        int_bencode if int_bencode.starts_with('i') => {
-            let int_bencode = int_bencode
-                .get(1..int_bencode.len() - 1)
-                .unwrap_or_else(|| panic!("Error slicing the integer"))
-                .parse::<i64>()
-                .unwrap_or_else(|e| panic!("Error parsing integer {}", e));
-            int_bencode.into()
-        }
+        int_bencode if int_bencode.starts_with('i') => int_bencode
+            .get(1..int_bencode.len() - 1)
+            .unwrap_or_else(|| panic!("Error slicing the integer"))
+            .parse::<i64>()
+            .unwrap_or_else(|e| panic!("Error parsing integer {}", e))
+            .into(),
         // vector
         mut x if x.starts_with('l') => {
             let mut lists: Vec<&str> = Vec::new();
@@ -63,12 +86,25 @@ fn decode_bencoded_value(encoded_value: &str) -> BencodedValue {
             BencodedValue::List(x)
         }
         // string
-        x if x.contains(':') => {
+        x if x.chars().next().unwrap().is_ascii_digit() => {
             if let Some((_, right)) = x.split_once(':') {
                 BencodedValue::String(right.to_string())
             } else {
                 panic!("[string]Unhandled encoded value: {}", x)
             }
+        }
+        x if x.starts_with('d') => {
+            let mut result: HashMap<String, BencodedValue> = HashMap::new();
+            let x = &x.replacen('d', "l", 1);
+            let bencoded_list: BencodedValue = decode_bencoded_value(x);
+            if let BencodedValue::List(list) = bencoded_list {
+                for element in list.chunks(2) {
+                    let first_key = &element[0];
+                    let first_values = &element[1];
+                    result.insert(first_key.to_string(), first_values.clone());
+                }
+            }
+            BencodedValue::Dictionary(result)
         }
         _ => panic!("unknown value"),
     }
