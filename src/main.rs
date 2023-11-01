@@ -1,10 +1,23 @@
 use std::env;
-
 // Available if you need it!
 // use serde_bencode
 
+enum BencodedValue {
+    String(String),
+    Number(i32),
+}
+
+impl std::fmt::Debug for BencodedValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::String(arg0) => write!(f, "{:?}", arg0),
+            Self::Number(arg0) => write!(f, "{:?}", arg0),
+        }
+    }
+}
+
 #[allow(dead_code)]
-fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
+fn decode_bencoded_value(encoded_value: &str) -> BencodedValue {
     match encoded_value {
         // integer
         value if value.starts_with('i') && value.ends_with('e') => {
@@ -13,12 +26,12 @@ fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
                 .unwrap_or_else(|| panic!("Error slicing the integer"))
                 .parse::<i32>()
                 .unwrap_or_else(|e| panic!("Error parsing integer {}", e));
-            serde_json::Value::String(x.to_string())
+            BencodedValue::Number(x)
         }
         // string
         val if val.contains(':') => {
             if let Some((_, right)) = val.split_once(':') {
-                serde_json::Value::String(right.to_string())
+                BencodedValue::String(right.to_string())
             } else {
                 panic!("[string]Unhandled encoded value: {}", val)
             }
@@ -34,7 +47,7 @@ fn main() {
     if command == "decode" {
         let encoded_value = &args[2];
         let decoded_value = decode_bencoded_value(encoded_value);
-        println!("{}", decoded_value);
+        println!("{:?}", decoded_value);
     } else {
         println!("unknown command: {}", args[1]);
     }
