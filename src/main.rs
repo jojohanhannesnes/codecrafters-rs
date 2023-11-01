@@ -4,7 +4,7 @@ use std::env;
 
 enum BencodedValue {
     String(String),
-    Number(i32),
+    Number(u64),
 }
 
 impl std::fmt::Debug for BencodedValue {
@@ -24,7 +24,7 @@ fn decode_bencoded_value(encoded_value: &str) -> BencodedValue {
             let x = value
                 .get(1..value.len() - 1)
                 .unwrap_or_else(|| panic!("Error slicing the integer"))
-                .parse::<i32>()
+                .parse::<u64>()
                 .unwrap_or_else(|e| panic!("Error parsing integer {}", e));
             BencodedValue::Number(x)
         }
