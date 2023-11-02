@@ -1,130 +1,72 @@
-use std::{collections::HashMap, env};
+use serde::{de::Visitor, Deserialize};
 
-// Available if you need it!
-// use serde_bencode
-#[derive(Clone)]
-enum BencodedValue {
-    String(String),
-    Number(i64),
-    List(Vec<BencodedValue>),
-    Dictionary(HashMap<String, BencodedValue>),
+use std::fs;
+#[derive(Deserialize, Debug)]
+struct Torrent {
+    announce: String,
+    info: Info,
+}
+#[derive(Deserialize, Debug)]
+struct Info {
+    name: String,
+    #[serde(rename = "piece length")]
+    plength: usize,
+    pieces: Hashes,
+    #[serde(flatten)]
+    keys: Keys,
 }
 
-impl std::fmt::Debug for BencodedValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::String(arg0) => write!(f, "{:?}", arg0),
-            Self::Number(arg0) => write!(f, "{:?}", arg0),
-            BencodedValue::List(arg0) => write!(f, "{:?}", arg0),
-            BencodedValue::Dictionary(arg0) => write!(f, "{:?}", arg0),
+#[derive(Debug)]
+struct Hashes(Vec<[u8; 20]>);
+struct HashVisitor;
+
+impl<'de> Visitor<'de> for HashVisitor {
+    type Value = Hashes;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("need value modulus 20")
+    }
+
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        if v.len() % 20 != 0 {
+            return Err(E::custom(format!("length is {}", v.len())));
         }
+        Ok(Hashes(
+            v.chunks_exact(20)
+                .map(|x| x.try_into().expect("guaranteed to be length 20"))
+                .collect(),
+        ))
     }
 }
 
-impl From<i64> for BencodedValue {
-    fn from(value: i64) -> Self {
-        BencodedValue::Number(value)
+impl<'de> Deserialize<'de> for Hashes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_bytes(HashVisitor)
     }
 }
 
-// just in case for every key that is decoded will be the key of dictionaries
-impl ToString for BencodedValue {
-    fn to_string(&self) -> String {
-        match self {
-            BencodedValue::String(s) => s.to_string(),
-            BencodedValue::Number(n) => n.to_string(),
-            BencodedValue::List(list) => {
-                let elements: Vec<String> = list.iter().map(|item| item.to_string()).collect();
-                format!("List({})", elements.join(", "))
-            }
-            BencodedValue::Dictionary(dict) => {
-                let elements: Vec<String> = dict
-                    .iter()
-                    .map(|(key, value)| format!("{}: {}", key, value.to_string()))
-                    .collect();
-                format!("Dictionary({})", elements.join(", "))
-            }
-        }
-    }
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+enum Keys {
+    SingleFile { length: usize },
+    MultiFile { files: File },
 }
 
-#[allow(dead_code)]
-fn decode_bencoded_value(encoded_value: &str) -> BencodedValue {
-    match encoded_value {
-        // integer
-        int_bencode if int_bencode.starts_with('i') => int_bencode
-            .get(1..int_bencode.len() - 1)
-            .unwrap_or_else(|| panic!("Error slicing the integer"))
-            .parse::<i64>()
-            .unwrap_or_else(|e| panic!("Error parsing integer {}", e))
-            .into(),
-        // vector
-        mut x if x.starts_with('l') => {
-            let mut lists = Vec::new();
-            x = x.strip_prefix('l').unwrap();
-            while x.len() != 1 {
-                // reached last e
-                let delim: usize;
-                match x.chars().next().unwrap() {
-                    'i' => {
-                        delim = x.find('e').unwrap();
-                        let digits = x.get(0..=delim).unwrap();
-                        x = &x[delim + 1..];
-                        lists.push(digits);
-                    }
-                    y if y.is_ascii_digit() => {
-                        delim = x.find(':').unwrap();
-                        let encode_length = x.get(0..delim).unwrap().parse::<usize>().unwrap();
-                        let encode_value = x.get(0..=delim + encode_length).unwrap();
-                        x = &x[delim + 1 + encode_length..];
-                        lists.push(encode_value);
-                    }
-                    'l' => {
-                        unimplemented!()
-                    }
-                    x => {
-                        println!("{x}");
-                        panic!("doesnt understand the list");
-                    }
-                }
-            }
-            let x: Vec<BencodedValue> = lists.into_iter().map(decode_bencoded_value).collect();
-            BencodedValue::List(x)
-        }
-        // string
-        x if x.chars().next().unwrap().is_ascii_digit() => {
-            if let Some((_, right)) = x.split_once(':') {
-                BencodedValue::String(right.to_string())
-            } else {
-                panic!("[string]Unhandled encoded value: {}", x)
-            }
-        }
-        x if x.starts_with('d') => {
-            let mut result: HashMap<String, BencodedValue> = HashMap::new();
-            let x = &x.replacen('d', "l", 1);
-            let bencoded_list: BencodedValue = decode_bencoded_value(x);
-            if let BencodedValue::List(list) = bencoded_list {
-                for element in list.chunks(2) {
-                    let first_key = &element[0];
-                    let first_values = &element[1];
-                    result.insert(first_key.to_string(), first_values.clone());
-                }
-            }
-            BencodedValue::Dictionary(result)
-        }
-        _ => panic!("unknown value"),
-    }
+#[derive(Deserialize, Debug)]
+struct File {
+    length: usize,
+    path: Vec<String>,
 }
 
-// Usage: your_bittorrent.sh decode "<encoded_value>"
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    let command = &args[1];
-    if command == "decode" {
-        let encoded_value = &args[2];
-        let decoded_value = decode_bencoded_value(encoded_value);
-        println!("{:?}", decoded_value);
-    } else {
-        println!("unknown command: {}", args[1]);
-    }
+    let file = "sample.torrent";
+    let contents = fs::read(file).expect("cannot read torrent file");
+    let x: Torrent = serde_bencode::from_bytes(&contents).unwrap();
+    println!("{x:?}");
 }
